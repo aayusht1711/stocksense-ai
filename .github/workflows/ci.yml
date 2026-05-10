@@ -1,0 +1,71 @@
+# .github/workflows/ci.yml
+# Runs on every push — checks the app doesn't crash on startup
+
+name: CI — Smoke Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check imports
+        run: |
+          python -c "from data.ingestion import fetch_stock_data; print('✓ data.ingestion')"
+          python -c "from features.engineering import build_features; print('✓ features.engineering')"
+          python -c "from models.xgboost_model import StackingEnsemble; print('✓ models.xgboost_model')"
+          python -c "from backtest.engine import BacktestEngine; print('✓ backtest.engine')"
+          python -c "from utils.cloud_config import get_secret; print('✓ utils.cloud_config')"
+          echo "All imports OK"
+
+      - name: Quick data fetch test
+        run: |
+          python -c "
+          from data.ingestion import fetch_stock_data
+          df = fetch_stock_data('AAPL', period='1mo')
+          assert len(df) > 15, 'Data too short'
+          print(f'✓ Data fetch: {len(df)} rows for AAPL')
+          "
+
+      - name: Quick feature test
+        run: |
+          python -c "
+          from data.ingestion import fetch_stock_data
+          from features.engineering import build_features, get_feature_columns
+          df = fetch_stock_data('AAPL', period='6mo')
+          df_f = build_features(df, horizon=7)
+          fc = get_feature_columns(df_f, 7)
+          print(f'✓ Features: {len(fc)} features built')
+          assert len(fc) > 30
+          "
+
+      - name: Quick model test
+        run: |
+          python -c "
+          import numpy as np
+          from models.xgboost_model import XGBoostStockModel
+          X = np.random.randn(200, 40).astype('float32')
+          y = np.random.randn(200).astype('float32')
+          m = XGBoostStockModel(task='regression', ticker='TEST')
+          m.fit(X[:150], y[:150], X[150:], y[150:])
+          preds = m.predict(X[150:])
+          print(f'✓ XGBoost model: {len(preds)} predictions')
+          "

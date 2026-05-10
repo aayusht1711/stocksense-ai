@@ -1,0 +1,73 @@
+# .github/workflows/retrain.yml
+# ─────────────────────────────────────────────────────────────
+# Auto-retrains StockSense models every Sunday at 6am IST
+# and commits the updated models back to the repo.
+# Streamlit Cloud picks up the new models automatically.
+
+name: Weekly Model Retrain
+
+on:
+  schedule:
+    # Every Sunday at 00:30 UTC (6:00 AM IST)
+    - cron: '30 0 * * 0'
+
+  # Also allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: 'Tickers to retrain (space-separated)'
+        required: false
+        default: 'AAPL TSLA NVDA MSFT AMZN'
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p models/saved
+          mkdir -p data/cache
+
+      - name: Retrain models
+        env:
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+        run: |
+          TICKERS="${{ github.event.inputs.tickers || 'AAPL TSLA NVDA MSFT AMZN' }}"
+          echo "Retraining for: $TICKERS"
+          python train.py --ticker $TICKERS --no-lstm --no-backtest
+          echo "Retraining complete!"
+
+      - name: Commit updated models
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "StockSense AutoTrain"
+          git add models/saved/*.pkl || true
+          git add models/saved/*.keras || true
+          git diff --staged --quiet || git commit -m "🤖 Auto-retrain: $(date '+%Y-%m-%d') [skip ci]"
+          git push || echo "Nothing to push"
+
+      - name: Send success email
+        if: success()
+        run: |
+          echo "Models retrained successfully on $(date)"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Retraining FAILED on $(date) — check logs"
