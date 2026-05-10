@@ -1,14 +1,2 @@
-[theme]
-base = "dark"
-backgroundColor = "#080B0F"
-secondaryBackgroundColor = "#0C0F14"
-primaryColor = "#C4A050"
-textColor = "#E8E0D0"
-
 [server]
-maxUploadSize = 10
-enableCORS = false
-enableXsrfProtection = true
-
-[browser]
-gatherUsageStats = false
+pythonVersion = "3.11"
