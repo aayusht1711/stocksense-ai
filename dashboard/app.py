@@ -213,7 +213,7 @@ rsi  = float(100 - 100/(1 + _d.clip(lower=0).rolling(14).mean().iloc[-1]/((-_d.c
 # ════════════════════════════════════════════════════════════
 #  TOP NAVIGATION  ── always visible
 # ════════════════════════════════════════════════════════════
-PAGES = ["📊 Dashboard","🔮 Predictions","🔍 SHAP Explainer","🧠 AI Chat","📈 PyTorch TFT","📰 News & Sentiment",
+PAGES = ["📊 Dashboard","🔮 Predictions","🔍 SHAP Explainer","💹 Paper Trading","🧠 AI Chat","📈 PyTorch TFT","📰 News & Sentiment",
          "💼 Portfolio","🔔 Alerts","📈 Screener","❓ How To Use"]
 
 cols_nav = st.columns(len(PAGES))
@@ -1253,3 +1253,241 @@ elif "SHAP" in page:
 
     else:
         st.markdown(f'<div style="background:#0E1118;border:1px dashed rgba(196,160,80,0.2);border-radius:12px;padding:3rem;text-align:center;color:{MT}"><div style="font-size:2rem;margin-bottom:10px">🔍</div><div style="font-size:14px">Click <strong style="color:{G}">Run SHAP Analysis</strong> above to explain the model\'s predictions for {ticker}</div><div style="font-size:12px;margin-top:8px">Takes ~45 seconds · Requires: <code>pip install shap</code></div></div>', unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+#  PAGE: PAPER TRADING SIMULATOR
+# ════════════════════════════════════════════════════════════
+elif "Paper Trading" in page:
+    from utils.paper_trading import (
+        get_engine, save_engine, reset_account, PaperTradingEngine
+    )
+
+    st.markdown(f'<div class="hero-title" style="margin-bottom:3px">Paper Trading Simulator</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="color:{MT};font-size:13px;margin-bottom:1.2rem">Virtual $100,000 account · Trade from ML signals · No real money · {ticker}</div>', unsafe_allow_html=True)
+
+    # ── Init engine ──────────────────────────────────────────
+    engine = get_engine(st.session_state)
+
+    # ── Flash messages ───────────────────────────────────────
+    if "pt_messages" in st.session_state and st.session_state["pt_messages"]:
+        for msg_type, msg_text in st.session_state["pt_messages"]:
+            if msg_type == "success": st.success(msg_text)
+            elif msg_type == "error": st.error(msg_text)
+            elif msg_type == "info":  st.info(msg_text)
+        st.session_state["pt_messages"] = []
+
+    # Get current price for mark-to-market
+    current_prices = {ticker: cur}
+    portfolio_value = engine.get_portfolio_value(current_prices)
+    metrics = engine.get_metrics(portfolio_value)
+    bh_ret  = engine.get_bh_return(cur)
+    our_ret = metrics["total_return"]
+
+    # ── Account KPIs ─────────────────────────────────────────
+    sec("💰","Account Overview")
+    k1,k2,k3,k4,k5,k6 = st.columns(6)
+    with k1: kcard("Portfolio Value", f"${portfolio_value:,.2f}", f"{our_ret:+.2f}% total return", GR if our_ret>=0 else RD)
+    with k2: kcard("Cash Available", f"${metrics['cash']:,.2f}", f"{metrics['cash']/portfolio_value*100:.0f}% of portfolio", G)
+    with k3: kcard("Total P&L", f"${metrics['total_pnl']:+,.2f}", f"vs $100,000 start", GR if metrics['total_pnl']>=0 else RD)
+    with k4:
+        alpha = our_ret - bh_ret
+        kcard("Alpha vs B&H", f"{alpha:+.2f}%", f"B&H: {bh_ret:+.2f}%", GR if alpha>=0 else RD)
+    with k5: kcard("Win Rate", f"{metrics['win_rate']:.0f}%", f"{metrics['num_trades']} closed trades", GR if metrics['win_rate']>=50 else RD)
+    with k6: kcard("Open Positions", str(metrics.get('open_positions',0)), "currently active", G)
+
+    # ── Return comparison chart ───────────────────────────────
+    if engine.account.bh_invested:
+        sec("📈","Your Returns vs Buy & Hold")
+        closed = [t for t in engine.account.trades if t.status=="CLOSED"]
+        if closed:
+            dates  = [t.entry_date[:10] for t in closed]
+            cumret = []
+            running = engine.account.initial_capital
+            for t in closed:
+                running += t.pnl
+                cumret.append((running/engine.account.initial_capital-1)*100)
+
+            fig_ret = go.Figure()
+            fig_ret.add_trace(go.Scatter(
+                x=dates, y=cumret,
+                name="Your Strategy",
+                line=dict(color=GR, width=2.5),
+                fill="tozeroy", fillcolor="rgba(74,222,128,0.06)"
+            ))
+            fig_ret.add_hline(y=bh_ret, line_dash="dash", line_color=G,
+                              annotation_text=f"Buy & Hold: {bh_ret:+.1f}%",
+                              annotation_font_color=G)
+            fig_ret.add_hline(y=0, line_color=MT, line_width=0.5)
+            fig_ret.update_layout(title="Cumulative Return (%)")
+            pdark(fig_ret, 260); st.plotly_chart(fig_ret, use_container_width=True)
+
+    st.markdown('<div class="gold-line"></div>', unsafe_allow_html=True)
+
+    # ── Trade execution panel ─────────────────────────────────
+    sec("⚡","Execute Trade")
+
+    # Get ML prediction if available
+    pred_data = st.session_state.get("pred", {})
+    has_pred  = bool(pred_data) and pred_data.get("ticker","") == ticker
+
+    if has_pred:
+        pp   = pred_data.get("pp", cur)
+        pr   = pred_data.get("pr", 0)
+        cf   = pred_data.get("cf", 0.5)
+        sig  = "BUY" if pr>1.5 else ("SELL" if pr<-1.5 else "HOLD")
+        sig_color = GR if sig=="BUY" else (RD if sig=="SELL" else G)
+
+        st.markdown(f"""
+        <div style="background:rgba(196,160,80,0.06);border:1px solid rgba(196,160,80,0.2);
+             border-radius:12px;padding:16px 20px;margin-bottom:16px">
+          <div style="font-size:11px;color:{MT};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">
+            Latest ML Signal for {ticker}
+          </div>
+          <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+            <div><div style="font-size:11px;color:{MT}">Signal</div>
+              <span class="{'sig-buy' if sig=='BUY' else ('sig-sell' if sig=='SELL' else 'sig-hold')}">{sig}</span></div>
+            <div><div style="font-size:11px;color:{MT}">Current</div>
+              <div style="font-family:'DM Mono',monospace;font-size:16px;color:{TX}">${cur:,.2f}</div></div>
+            <div><div style="font-size:11px;color:{MT}">Predicted ({pred_data.get('horizon',7)}d)</div>
+              <div style="font-family:'DM Mono',monospace;font-size:16px;color:{sig_color}">${pp:,.2f} ({pr:+.1f}%)</div></div>
+            <div><div style="font-size:11px;color:{MT}">Confidence</div>
+              <div style="font-family:'DM Mono',monospace;font-size:16px;color:{G}">{cf*100:.0f}%</div></div>
+          </div>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.info(f"💡 Go to **🔮 Predictions** page first and run a prediction for {ticker} — the signal will appear here for one-click trading.")
+
+    # Trade form
+    tf1, tf2, tf3 = st.columns([2,1,1])
+    with tf1:
+        trade_reason = st.text_input(
+            "Trade reason / notes",
+            value=f"ML {sig if has_pred else 'signal'}: predicted ${pp:.2f} ({pr:+.1f}%) in {pred_data.get('horizon',7)} days. Confidence {cf*100:.0f}%." if has_pred else "",
+            placeholder="Why are you making this trade?",
+            key="pt_reason"
+        )
+    with tf2:
+        position_pct = st.slider("Position size", 5, 50, 10, step=5,
+                                  help="% of your portfolio to invest") / 100
+    with tf3:
+        invest_amt = portfolio_value * position_pct
+        st.markdown(f'<div class="kpi-card" style="margin-top:4px"><div class="kpi-label">Will invest</div><div class="kpi-value" style="font-size:16px">${invest_amt:,.0f}</div><div class="kpi-delta" style="color:{MT}">{position_pct*100:.0f}% of portfolio</div></div>', unsafe_allow_html=True)
+
+    b1, b2, b3, b4 = st.columns(4)
+
+    with b1:
+        if st.button(f"🟢 BUY {ticker}", use_container_width=True, type="primary"):
+            reason = trade_reason or f"Manual BUY at ${cur:.2f}"
+            ok, msg = engine.buy(
+                ticker=ticker, current_price=cur,
+                signal=sig if has_pred else "MANUAL",
+                confidence=cf if has_pred else 0.5,
+                pred_price=pp if has_pred else cur,
+                horizon_days=pred_data.get("horizon",7) if has_pred else 7,
+                reason=reason, position_pct=position_pct,
+            )
+            save_engine(engine, st.session_state)
+            st.session_state["pt_messages"] = [("success" if ok else "error", msg)]
+            st.rerun()
+
+    with b2:
+        if st.button(f"🔴 SELL {ticker}", use_container_width=True):
+            reason = trade_reason or f"Manual SELL at ${cur:.2f}"
+            ok, msg = engine.sell(ticker=ticker, current_price=cur, reason=reason)
+            save_engine(engine, st.session_state)
+            st.session_state["pt_messages"] = [("success" if ok else "error", msg)]
+            st.rerun()
+
+    with b3:
+        if st.button("🔄 Refresh prices", use_container_width=True):
+            st.session_state["pt_messages"] = [("info", f"Prices refreshed. {ticker}: ${cur:.2f}")]
+            st.rerun()
+
+    with b4:
+        if st.button("⚠️ Reset account", use_container_width=True):
+            reset_account(st.session_state)
+            st.session_state["pt_messages"] = [("info", "Account reset to $100,000 ✓")]
+            st.rerun()
+
+    # ── Open positions ────────────────────────────────────────
+    open_pos = engine.get_open_positions(current_prices)
+    sec("📂",f"Open Positions ({len(open_pos)})")
+
+    if not open_pos:
+        st.markdown(f'<div style="background:#0E1118;border:1px dashed rgba(196,160,80,0.15);border-radius:10px;padding:1.5rem;text-align:center;color:{MT};font-size:13px">No open positions. Use the BUY button above to open one.</div>', unsafe_allow_html=True)
+    else:
+        # Header
+        st.markdown(f'<div class="port-row" style="border-bottom:1px solid rgba(196,160,80,0.25)"><span class="port-ticker">TICKER</span><span class="port-cell" style="color:{MT}">SHARES</span><span class="port-cell" style="color:{MT}">ENTRY $</span><span class="port-cell" style="color:{MT}">NOW $</span><span class="port-cell" style="color:{MT}">MKT VALUE</span><span class="port-cell" style="color:{MT}">UNREAL P&L</span><span class="port-cell" style="color:{MT}">SIGNAL</span><span class="port-cell" style="color:{MT}">CONF</span></div>', unsafe_allow_html=True)
+        for pos in open_pos:
+            pc = GR if pos["unrealised"]>=0 else RD
+            sc2 = GR if pos["signal"]=="BUY" else (RD if pos["signal"]=="SELL" else G)
+            st.markdown(f'<div class="port-row"><span class="port-ticker">{pos["ticker"]}</span><span class="port-cell">{pos["shares"]}</span><span class="port-cell" style="color:{MT}">${pos["entry_price"]:.2f}</span><span class="port-cell">${pos["current_price"]:.2f}</span><span class="port-cell">${pos["mkt_value"]:,.2f}</span><span class="port-cell" style="color:{pc}">${pos["unrealised"]:+,.2f} ({pos["unreal_pct"]:+.1f}%)</span><span class="port-cell" style="color:{sc2}">{pos["signal"]}</span><span class="port-cell" style="color:{G}">{pos["confidence"]*100:.0f}%</span></div>', unsafe_allow_html=True)
+
+        # Quick close buttons
+        st.write("")
+        close_cols = st.columns(min(len(open_pos), 4))
+        for i, pos in enumerate(open_pos[:4]):
+            with close_cols[i]:
+                if st.button(f"Close {pos['ticker']}", key=f"close_{pos['id']}", use_container_width=True):
+                    ok, msg = engine.sell(pos["ticker"], current_prices.get(pos["ticker"], pos["current_price"]), "Closed from position panel")
+                    save_engine(engine, st.session_state)
+                    st.session_state["pt_messages"] = [("success" if ok else "error", msg)]
+                    st.rerun()
+
+    # ── Trade Journal ─────────────────────────────────────────
+    sec("📔","Trade Journal")
+
+    journal = engine.get_trade_journal()
+    if not journal:
+        st.markdown(f'<div style="background:#0E1118;border:1px dashed rgba(196,160,80,0.15);border-radius:10px;padding:1.5rem;text-align:center;color:{MT};font-size:13px">No trades yet. Make your first trade above!</div>', unsafe_allow_html=True)
+    else:
+        st.dataframe(
+            pd.DataFrame(journal),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "P&L":    st.column_config.TextColumn("P&L", width="small"),
+                "Return": st.column_config.TextColumn("Return", width="small"),
+                "Reason": st.column_config.TextColumn("Reason", width="large"),
+            }
+        )
+
+    # ── Performance summary ───────────────────────────────────
+    closed_trades = [t for t in engine.account.trades if t.status=="CLOSED"]
+    if closed_trades:
+        sec("📊","Performance Summary")
+        pm1,pm2,pm3,pm4 = st.columns(4)
+        with pm1: kcard("Best Trade",  f"${metrics['best_trade']:+,.2f}", "single trade P&L", GR)
+        with pm2: kcard("Worst Trade", f"${metrics['worst_trade']:+,.2f}", "single trade P&L", RD)
+        with pm3: kcard("Avg Win",     f"${metrics['avg_win']:,.2f}", "average winning trade", GR)
+        with pm4: kcard("Commission",  f"${metrics['total_commission']:,.2f}", "total fees paid", MT)
+
+        # P&L per trade bar chart
+        trade_labels = [f"#{t.id} {t.ticker}" for t in closed_trades]
+        trade_pnls   = [t.pnl for t in closed_trades]
+        fig_pnl = go.Figure(go.Bar(
+            x=trade_labels, y=trade_pnls,
+            marker_color=[GR if p>=0 else RD for p in trade_pnls],
+            text=[f"${p:+.0f}" for p in trade_pnls],
+            textposition="outside",
+        ))
+        fig_pnl.update_layout(title="P&L Per Closed Trade ($)")
+        pdark(fig_pnl, 260); st.plotly_chart(fig_pnl, use_container_width=True)
+
+    # ── How to use box ────────────────────────────────────────
+    with st.expander("❓ How to use the paper trading simulator"):
+        st.markdown(f"""
+        <div style="font-size:13px;color:{TX};line-height:1.9">
+        <strong style="color:{G2}">Step-by-step:</strong><br>
+        1. Go to <strong>🔮 Predictions</strong> → select a ticker → click Generate Prediction<br>
+        2. Come back here → the ML signal appears automatically<br>
+        3. Write a trade reason (or keep the auto-filled one) → click <strong>🟢 BUY</strong><br>
+        4. Monitor your open position — price updates on refresh<br>
+        5. When ready → click <strong>🔴 SELL</strong> or use the Close button<br>
+        6. All trades logged in the Trade Journal with your reasoning<br><br>
+        <strong style="color:{G2}">In interviews say:</strong><br>
+        <em>"The app includes a paper trading simulator where users can execute virtual trades 
+        directly from ML prediction signals — it tracks P&L, win rate, and compares returns 
+        against a buy-and-hold benchmark with realistic commission and slippage simulation."</em>
+        </div>""", unsafe_allow_html=True)
