@@ -213,7 +213,7 @@ rsi  = float(100 - 100/(1 + _d.clip(lower=0).rolling(14).mean().iloc[-1]/((-_d.c
 # ════════════════════════════════════════════════════════════
 #  TOP NAVIGATION  ── always visible
 # ════════════════════════════════════════════════════════════
-PAGES = ["📊 Dashboard","🔮 Predictions","🧠 AI Chat","📈 PyTorch TFT","📰 News & Sentiment",
+PAGES = ["📊 Dashboard","🔮 Predictions","🔍 SHAP Explainer","🧠 AI Chat","📈 PyTorch TFT","📰 News & Sentiment",
          "💼 Portfolio","🔔 Alerts","📈 Screener","❓ How To Use"]
 
 cols_nav = st.columns(len(PAGES))
@@ -868,3 +868,388 @@ elif "PyTorch" in page:
     ]:
         with col:
             st.markdown(f'<div class="kpi-card"><div style="font-size:1.4rem;margin-bottom:8px">{icon}</div><div style="font-size:13px;font-weight:600;color:{G2};margin-bottom:6px">{title}</div><div style="font-size:12px;color:{MT};line-height:1.6">{desc}</div></div>', unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════
+#  PAGE: SHAP EXPLAINABILITY
+# ════════════════════════════════════════════════════════════
+elif "SHAP" in page:
+    import plotly.graph_objects as go
+
+    st.markdown(f'<div class="hero-title" style="margin-bottom:3px">SHAP Explainability</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="color:{MT};font-size:13px;margin-bottom:1.2rem">Why did the model predict that? · Feature importance · What-if analysis · {ticker}</div>', unsafe_allow_html=True)
+
+    # ── What is SHAP banner ──────────────────────────────────
+    with st.expander("❓ What is SHAP and why does it matter?", expanded=False):
+        st.markdown(f"""
+        <div style="font-size:13px;color:{TX};line-height:1.8;padding:4px 0">
+        <strong style="color:{G2}">SHAP = SHapley Additive exPlanations</strong><br><br>
+        Imagine the model's prediction is a total score of <strong>${G}$218.47</strong>.
+        SHAP breaks that score apart and says exactly how much each input feature contributed.<br><br>
+        <strong style="color:{GR}">Green bars</strong> = features that pushed the prediction HIGHER<br>
+        <strong style="color:{RD}">Red bars</strong> = features that pushed the prediction LOWER<br>
+        <strong style="color:{G}">Gold bar</strong> = starting point (average prediction across all stocks)<br><br>
+        This answers the most common ML interview question: <em>"How do you know your model isn't a black box?"</em>
+        </div>""", unsafe_allow_html=True)
+
+    # ── Check SHAP available ─────────────────────────────────
+    try:
+        import shap
+        shap_ok = True
+    except ImportError:
+        shap_ok = False
+        st.error("SHAP not installed. Run in your terminal: `pip install shap` then restart the app.")
+        st.code("pip install shap", language="bash")
+        st.stop()
+
+    # ── Train model + compute SHAP ───────────────────────────
+    col_btn, _ = st.columns([1, 3])
+    with col_btn:
+        run_shap = st.button("🔍  Run SHAP Analysis", type="primary", use_container_width=True)
+
+    if run_shap or ("shap_data" in st.session_state and st.session_state.get("shap_ticker") == ticker):
+        if run_shap:
+            with st.spinner(f"Training model + computing SHAP values for {ticker}… (~45 seconds)"):
+                try:
+                    from features.engineering import build_features, get_feature_columns
+                    from models.xgboost_model import XGBoostStockModel
+                    from utils.shap_explainer import StockSHAPExplainer, build_waterfall_data, build_importance_bar_data
+                    from data.ingestion import fetch_stock_data
+
+                    # Load + engineer features
+                    df_raw  = fetch_stock_data(ticker, period="3y")
+                    df_feat = build_features(df_raw, horizon=horizon)
+                    fc      = get_feature_columns(df_feat, horizon)
+                    tc      = f"Target_Price_{horizon}d"
+                    X       = df_feat[fc].values.astype("float32")
+                    y       = df_feat[tc].values.astype("float32")
+
+                    tr = int(0.75*len(X)); vl = int(0.85*len(X))
+                    X_train, X_val, X_test = X[:tr], X[tr:vl], X[vl:]
+                    y_train, y_val         = y[:tr], y[tr:vl]
+
+                    # Train XGBoost
+                    xgb_m = XGBoostStockModel(task="regression", ticker=ticker)
+                    xgb_m.fit(X_train, y_train, X_val, y_val)
+
+                    # Build SHAP explainer
+                    explainer = StockSHAPExplainer(xgb_m, fc)
+
+                    # Single prediction explanation (latest data point)
+                    single_exp   = explainer.explain_single(X_test[-1])
+                    waterfall_d  = build_waterfall_data(single_exp, max_features=12)
+
+                    # Batch explanation (importance + over time)
+                    batch_exp    = explainer.explain_batch(X_test, sample_size=150)
+                    importance_d = build_importance_bar_data(batch_exp["importance_df"], top_n=15)
+
+                    # What-if: vary RSI
+                    rsi_idx = next((i for i,n in enumerate(fc) if "RSI" in n and "Lag" not in n), 0)
+                    rsi_name= fc[rsi_idx]
+                    rsi_vals= list(range(20, 82, 3))
+                    whatif_d = explainer.what_if_analysis(X_test[-1], rsi_name, rsi_vals)
+
+                    # What-if: vary MACD
+                    macd_idx  = next((i for i,n in enumerate(fc) if n=="MACD"), rsi_idx)
+                    macd_name = fc[macd_idx]
+                    macd_base = float(X_test[-1, macd_idx])
+                    macd_vals = [macd_base*r for r in np.linspace(0.1, 2.5, 20)]
+                    whatif_macd = explainer.what_if_analysis(X_test[-1], macd_name, macd_vals)
+
+                    st.session_state["shap_data"] = {
+                        "waterfall":    waterfall_d,
+                        "importance":   importance_d,
+                        "batch":        batch_exp,
+                        "whatif_rsi":   whatif_d,
+                        "whatif_macd":  whatif_macd,
+                        "rsi_name":     rsi_name,
+                        "macd_name":    macd_name,
+                        "single":       single_exp,
+                        "feat_cols":    fc,
+                        "X_test":       X_test,
+                        "xgb_m":        xgb_m,
+                        "explainer":    explainer,
+                    }
+                    st.session_state["shap_ticker"] = ticker
+                except Exception as e:
+                    st.error(f"SHAP error: {e}")
+                    st.exception(e)
+
+        # ── Render SHAP results ──────────────────────────────
+        if "shap_data" in st.session_state and st.session_state.get("shap_ticker") == ticker:
+            sd = st.session_state["shap_data"]
+            wd = sd["waterfall"]
+            imp= sd["importance"]
+            sp = sd["single"]
+
+            # ── KPI Row ──────────────────────────────────────
+            sec("🎯","Prediction Explanation Summary")
+            k1,k2,k3,k4 = st.columns(4)
+            with k1: kcard("Model Prediction", f"${wd['prediction']:,.2f}", f"for {ticker} in {horizon} days", GR if wd['prediction']>=cur else RD)
+            with k2: kcard("Base Value", f"${wd['base']:,.2f}", "average model prediction", G)
+            with k3:
+                top_feat = sp["top_positive"][0] if sp["top_positive"] else ("N/A", 0, 0)
+                kcard("Top Bullish Feature", top_feat[0][:20], f"+${top_feat[1]:.2f} contribution", GR)
+            with k4:
+                top_bear = sp["top_negative"][0] if sp["top_negative"] else ("N/A", 0, 0)
+                kcard("Top Bearish Feature", top_bear[0][:20], f"${top_bear[1]:.2f} contribution", RD)
+
+            st.markdown('<div class="gold-line"></div>', unsafe_allow_html=True)
+
+            # ── Waterfall chart ───────────────────────────────
+            sec("📊","Waterfall Chart — How Each Feature Built the Prediction")
+            st.markdown(f'<div style="font-size:12px;color:{MT};margin-bottom:12px">Starting from the base value (average prediction), each bar shows how much one feature pushed the price prediction up or down. The final bar is the model\'s predicted price.</div>', unsafe_allow_html=True)
+
+            fig_wf = go.Figure(go.Waterfall(
+                measure  = wd["measures"],
+                x        = wd["x_labels"],
+                y        = wd["y_values"],
+                textposition = "outside",
+                text     = [f"${v:+.2f}" if m=="relative" else f"${v:.2f}"
+                            for m,v in zip(wd["measures"], wd["y_values"])],
+                connector= {"line": {"color": "rgba(196,160,80,0.3)", "width": 1}},
+                increasing = {"marker": {"color": "#4ADE80"}},
+                decreasing = {"marker": {"color": "#F87171"}},
+                totals     = {"marker": {"color": "#C4A050"}},
+            ))
+            fig_wf.update_layout(
+                title=f"{ticker} — Prediction Decomposition (latest data point)",
+                paper_bgcolor=BG, plot_bgcolor=SURF,
+                font=dict(color=TX, size=10, family="DM Mono, monospace"),
+                height=460, margin=dict(l=8,r=8,t=40,b=100),
+                xaxis=dict(gridcolor="rgba(255,255,255,0.04)", tickangle=-30),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.04)", title="Price ($)"),
+                showlegend=False,
+            )
+            st.plotly_chart(fig_wf, use_container_width=True)
+
+            # ── Plain English explanation ─────────────────────
+            pos_feats = sp["top_positive"][:3]
+            neg_feats = sp["top_negative"][:3]
+            pos_str = ", ".join([f"**{f[0]}** (+${f[1]:.2f})" for f in pos_feats])
+            neg_str = ", ".join([f"**{f[0]}** (${f[1]:.2f})" for f in neg_feats])
+            direction = "higher" if wd["prediction"] >= wd["base"] else "lower"
+            st.markdown(f"""
+            <div style="background:rgba(196,160,80,0.06);border:1px solid rgba(196,160,80,0.2);border-radius:10px;padding:14px 18px;margin-bottom:1rem">
+              <div style="font-size:13px;color:{TX};line-height:1.8">
+                <strong style="color:{G2}">In plain English:</strong><br>
+                The model's average prediction is <strong>${wd['base']:.2f}</strong>. For <strong>{ticker}</strong> today,
+                the prediction is <strong style="color:{'#4ADE80' if direction=='higher' else '#F87171'}">${wd['prediction']:.2f}</strong> — 
+                <strong>${abs(wd['prediction']-wd['base']):.2f} {direction}</strong> than average.<br><br>
+                Features <strong style="color:#4ADE80">pushing it UP</strong>: {pos_str}<br>
+                Features <strong style="color:#F87171">pulling it DOWN</strong>: {neg_str}
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+            # ── Global Feature Importance ─────────────────────
+            sec("🏆","Global Feature Importance — What Matters Most Across All Predictions")
+            st.markdown(f'<div style="font-size:12px;color:{MT};margin-bottom:12px">Average |SHAP value| across {sd["batch"]["n_samples"]} recent predictions. Higher = this feature has more influence on predictions in general.</div>', unsafe_allow_html=True)
+
+            fig_imp = go.Figure(go.Bar(
+                x         = imp["importance"][::-1],
+                y         = imp["features"][::-1],
+                orientation = "h",
+                marker_color= [GR if v>=0 else RD for v in imp["mean_shap"][::-1]],
+                text      = [f"${v:.3f}" for v in imp["importance"][::-1]],
+                textposition = "outside",
+                textfont  = dict(size=10, color=TX),
+            ))
+            fig_imp.update_layout(
+                title="Top 15 Most Influential Features",
+                paper_bgcolor=BG, plot_bgcolor=SURF,
+                font=dict(color=TX, size=11, family="DM Mono, monospace"),
+                height=480, margin=dict(l=8,r=60,t=40,b=8),
+                xaxis=dict(gridcolor="rgba(255,255,255,0.04)", title="Mean |SHAP value| ($)"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.04)"),
+            )
+            st.plotly_chart(fig_imp, use_container_width=True)
+
+            # Feature importance table
+            with st.expander("📋 View full feature importance table"):
+                disp_df = sd["batch"]["importance_df"].copy()
+                disp_df["importance"] = disp_df["importance"].round(4)
+                disp_df["mean_shap"]  = disp_df["mean_shap"].round(4)
+                disp_df.columns = ["Feature", "Avg |SHAP| ($)", "Mean SHAP ($)"]
+                disp_df["Direction"] = disp_df["Mean SHAP ($)"].apply(lambda v: "↑ Bullish" if v>0 else "↓ Bearish")
+                st.dataframe(disp_df, use_container_width=True, hide_index=True)
+
+            # ── What-if Analysis ──────────────────────────────
+            sec("🔧","What-If Analysis — Change a Feature, See the Impact")
+            st.markdown(f'<div style="font-size:12px;color:{MT};margin-bottom:12px">Vary one feature across a range while keeping everything else constant. Shows how sensitive the model is to each input.</div>', unsafe_allow_html=True)
+
+            wi1, wi2 = st.columns(2)
+
+            with wi1:
+                st.markdown(f'<div style="font-size:13px;font-weight:500;color:{G};margin-bottom:8px">RSI Effect on Predicted Price</div>', unsafe_allow_html=True)
+                rsi_data  = sd["whatif_rsi"]
+                rsi_preds = [d["prediction"] for d in rsi_data]
+                rsi_vals2 = [d["value"] for d in rsi_data]
+                fig_rsi_wi = go.Figure()
+                fig_rsi_wi.add_trace(go.Scatter(
+                    x=rsi_vals2, y=rsi_preds,
+                    mode="lines+markers",
+                    line=dict(color=G, width=2),
+                    marker=dict(size=6, color=G),
+                    name="Predicted Price",
+                ))
+                fig_rsi_wi.add_vline(x=30, line_dash="dash", line_color=GR, annotation_text="Oversold 30")
+                fig_rsi_wi.add_vline(x=70, line_dash="dash", line_color=RD, annotation_text="Overbought 70")
+                fig_rsi_wi.add_hrect(y0=min(rsi_preds), y1=cur, fillcolor="rgba(74,222,128,0.05)", line_width=0)
+                fig_rsi_wi.update_layout(
+                    paper_bgcolor=BG, plot_bgcolor=SURF,
+                    font=dict(color=TX, size=10),
+                    height=280, margin=dict(l=8,r=8,t=10,b=40),
+                    xaxis=dict(title="RSI Value", gridcolor="rgba(255,255,255,0.04)"),
+                    yaxis=dict(title="Predicted Price ($)", gridcolor="rgba(255,255,255,0.04)"),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_rsi_wi, use_container_width=True)
+                rsi_low  = rsi_preds[0];  rsi_high = rsi_preds[-1]
+                st.markdown(f'<div style="font-size:11px;color:{MT}">RSI 20 → predicted ${rsi_low:.2f} &nbsp;|&nbsp; RSI 80 → predicted ${rsi_high:.2f} &nbsp;|&nbsp; Range: ${abs(rsi_high-rsi_low):.2f}</div>', unsafe_allow_html=True)
+
+            with wi2:
+                st.markdown(f'<div style="font-size:13px;font-weight:500;color:{BL};margin-bottom:8px">MACD Effect on Predicted Price</div>', unsafe_allow_html=True)
+                macd_data  = sd["whatif_macd"]
+                macd_preds = [d["prediction"] for d in macd_data]
+                macd_vals2 = [d["value"] for d in macd_data]
+                fig_macd_wi = go.Figure()
+                fig_macd_wi.add_trace(go.Scatter(
+                    x=macd_vals2, y=macd_preds,
+                    mode="lines+markers",
+                    line=dict(color=BL, width=2),
+                    marker=dict(size=6, color=BL),
+                    name="Predicted Price",
+                ))
+                fig_macd_wi.add_vline(x=0, line_dash="dash", line_color=MT, annotation_text="Zero line")
+                fig_macd_wi.update_layout(
+                    paper_bgcolor=BG, plot_bgcolor=SURF,
+                    font=dict(color=TX, size=10),
+                    height=280, margin=dict(l=8,r=8,t=10,b=40),
+                    xaxis=dict(title="MACD Value", gridcolor="rgba(255,255,255,0.04)"),
+                    yaxis=dict(title="Predicted Price ($)", gridcolor="rgba(255,255,255,0.04)"),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_macd_wi, use_container_width=True)
+
+            # ── Interactive What-If slider ────────────────────
+            sec("🎛️","Interactive What-If — Try It Yourself")
+            feat_cols = sd["feat_cols"]
+
+            # Pick top 10 features for the dropdown
+            top_feats = sd["batch"]["importance_df"]["feature"].head(10).tolist()
+            chosen_feat = st.selectbox("Choose a feature to vary:", top_feats, index=0)
+
+            fi = feat_cols.index(chosen_feat)
+            base_val = float(sd["X_test"][-1, fi])
+            f_min  = float(sd["X_test"][:, fi].min())
+            f_max  = float(sd["X_test"][:, fi].max())
+            f_range= np.linspace(f_min, f_max, 25)
+
+            new_val = st.slider(
+                f"Set value for **{chosen_feat}**",
+                min_value=float(f_min),
+                max_value=float(f_max),
+                value=float(base_val),
+                step=float((f_max-f_min)/50),
+            )
+
+            # Compute what-if for chosen feature
+            wi_results = sd["explainer"].what_if_analysis(
+                sd["X_test"][-1], chosen_feat, f_range.tolist()
+            )
+            wi_preds  = [r["prediction"] for r in wi_results]
+            wi_vals_x = [r["value"] for r in wi_results]
+
+            fig_wi = go.Figure()
+            fig_wi.add_trace(go.Scatter(
+                x=wi_vals_x, y=wi_preds,
+                mode="lines", line=dict(color=G, width=2), name="Predicted Price",
+                fill="tozeroy", fillcolor="rgba(196,160,80,0.04)"
+            ))
+            fig_wi.add_vline(x=base_val, line_dash="dot", line_color=G,
+                             annotation_text=f"Current: {base_val:.2f}")
+            fig_wi.add_vline(x=new_val, line_dash="solid", line_color=GR,
+                             annotation_text=f"Selected: {new_val:.2f}")
+
+            # Single point prediction at new_val
+            single_wi = sd["explainer"].what_if_analysis(sd["X_test"][-1], chosen_feat, [new_val])
+            new_pred  = single_wi[0]["prediction"]
+            fig_wi.add_trace(go.Scatter(
+                x=[new_val], y=[new_pred],
+                mode="markers",
+                marker=dict(size=12, color=GR, symbol="circle"),
+                name=f"New prediction: ${new_pred:.2f}",
+            ))
+            fig_wi.update_layout(
+                title=f"How {chosen_feat} affects predicted price",
+                paper_bgcolor=BG, plot_bgcolor=SURF,
+                font=dict(color=TX, size=11),
+                height=300, margin=dict(l=8,r=8,t=40,b=8),
+                xaxis=dict(title=chosen_feat, gridcolor="rgba(255,255,255,0.04)"),
+                yaxis=dict(title="Predicted Price ($)", gridcolor="rgba(255,255,255,0.04)"),
+            )
+            st.plotly_chart(fig_wi, use_container_width=True)
+
+            delta = new_pred - wd["prediction"]
+            st.markdown(f"""
+            <div style="background:{'rgba(74,222,128,0.08)' if delta>=0 else 'rgba(248,113,113,0.08)'};
+                 border:1px solid {'rgba(74,222,128,0.3)' if delta>=0 else 'rgba(248,113,113,0.3)'};
+                 border-radius:10px;padding:12px 16px">
+              <div style="font-size:13px;color:{TX}">
+                If <strong style="color:{G}">{chosen_feat}</strong> changes from 
+                <strong>{base_val:.2f}</strong> to <strong>{new_val:.2f}</strong>:<br>
+                Predicted price moves from 
+                <strong>${wd['prediction']:.2f}</strong> → 
+                <strong style="color:{'#4ADE80' if delta>=0 else '#F87171'}">${new_pred:.2f}</strong>
+                &nbsp;(<strong style="color:{'#4ADE80' if delta>=0 else '#F87171'}">{delta:+.2f}</strong>)
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+            # ── SHAP over time ────────────────────────────────
+            sec("📈","Feature Impact Over Time — How Importance Shifted")
+            st.markdown(f'<div style="font-size:12px;color:{MT};margin-bottom:12px">SHAP values for top features over the test period. Shows which features drove predictions at different times.</div>', unsafe_allow_html=True)
+
+            shap_ot = sd["batch"]["shap_over_time"]
+            colors_ot = [G, BL, GR, RD, "#BC8CFF", "#F97316", G2, "#5DCAA5"]
+            fig_ot = go.Figure()
+            for idx_ot, (feat_name, shap_vals) in enumerate(list(shap_ot.items())[:6]):
+                fig_ot.add_trace(go.Scatter(
+                    y=shap_vals,
+                    name=feat_name[:20],
+                    line=dict(color=colors_ot[idx_ot % len(colors_ot)], width=1.5),
+                    opacity=0.85,
+                ))
+            fig_ot.add_hline(y=0, line_color=MT, line_dash="dot", line_width=0.5)
+            fig_ot.update_layout(
+                title="SHAP values over test period (top 6 features)",
+                paper_bgcolor=BG, plot_bgcolor=SURF,
+                font=dict(color=TX, size=11),
+                height=300, margin=dict(l=8,r=8,t=40,b=8),
+                xaxis=dict(title="Sample index", gridcolor="rgba(255,255,255,0.04)"),
+                yaxis=dict(title="SHAP value ($)", gridcolor="rgba(255,255,255,0.04)"),
+                legend=dict(bgcolor=SURF, bordercolor="rgba(196,160,80,0.2)", borderwidth=1,
+                            orientation="h", y=-0.25),
+            )
+            st.plotly_chart(fig_ot, use_container_width=True)
+
+            # ── Interview prep box ────────────────────────────
+            sec("🎓","Interview Talking Points")
+            st.markdown(f"""
+            <div style="background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.2);border-radius:10px;padding:16px 20px">
+              <div style="font-size:13px;color:{TX};line-height:1.9">
+                <strong style="color:{BL}">Q: "How do you know your model isn't a black box?"</strong><br>
+                A: "I integrated SHAP TreeExplainer which gives exact Shapley values for every prediction. 
+                I can show precisely which features drove any individual prediction and by how much — 
+                for example, RSI contributed +${abs(sp['top_positive'][0][1]) if sp['top_positive'] else 0:.2f} 
+                to today's {ticker} prediction. I also built what-if analysis to show how predictions 
+                respond to feature changes."<br><br>
+                <strong style="color:{BL}">Q: "What's the most important feature in your model?"</strong><br>
+                A: "Based on mean absolute SHAP values across the test set, 
+                <strong style="color:{G}">{sd['batch']['importance_df']['feature'].iloc[0]}</strong> 
+                is the most influential feature, contributing an average of 
+                ${sd['batch']['importance_df']['importance'].iloc[0]:.3f} per prediction."
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+    else:
+        st.markdown(f'<div style="background:#0E1118;border:1px dashed rgba(196,160,80,0.2);border-radius:12px;padding:3rem;text-align:center;color:{MT}"><div style="font-size:2rem;margin-bottom:10px">🔍</div><div style="font-size:14px">Click <strong style="color:{G}">Run SHAP Analysis</strong> above to explain the model\'s predictions for {ticker}</div><div style="font-size:12px;margin-top:8px">Takes ~45 seconds · Requires: <code>pip install shap</code></div></div>', unsafe_allow_html=True)
