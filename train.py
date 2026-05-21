@@ -92,7 +92,7 @@ def train_single_ticker(
         pd.DataFrame(X_test,  columns=feat_cols),
     )
 
-    # ── 4. XGBoost + Ensemble ──────────────────────────────────
+    
     logger.info("Step 4/6 — XGBoost + Stacking Ensemble")
     from models.xgboost_model import StackingEnsemble, evaluate_model
 
