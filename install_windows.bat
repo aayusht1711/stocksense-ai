@@ -1,6 +1,6 @@
 @echo off
-REM ─────────────────────────────────────────────────────────────
-REM  StockSense AI — Windows Install Helper
+REM 
+REM  
 REM  Run this script instead of: pip install -r requirements.txt
 REM  Usage: Double-click install_windows.bat  OR  run in CMD
 REM ─────────────────────────────────────────────────────────────
