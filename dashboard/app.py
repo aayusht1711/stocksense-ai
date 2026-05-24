@@ -142,7 +142,7 @@ if "alerts" not in st.session_state:
         {"ticker":"TSLA","type":"Price Below","value":180.0,"active":True},
     ]
 
-# ── Sidebar: ticker + settings ────────────────────────────
+
 with st.sidebar:
     st.markdown(f"<div style='font-family:DM Serif Display,serif;font-size:1.35rem;color:{G2};padding-bottom:4px'>StockSense AI</div><div style='font-size:11px;color:{MT};margin-bottom:1.2rem'>Premium Trading Intelligence</div>", unsafe_allow_html=True)
     st.markdown("**TICKER**")
@@ -177,7 +177,7 @@ def train_model(t, h):
     ens.fit(X[:tr], y[:tr], X[tr:vl], y[tr:vl])
     return ens, fc, df
 
-# ── Helpers ───────────────────────────────────────────────
+
 def pdark(fig, h=320):
     fig.update_layout(
         paper_bgcolor=BG, plot_bgcolor=SF,
@@ -210,9 +210,7 @@ avgv = int(df["Volume"].rolling(20).mean().iloc[-1])
 _d   = df["Close"].diff()
 rsi  = float(100 - 100/(1 + _d.clip(lower=0).rolling(14).mean().iloc[-1]/((-_d.clip(upper=0)).rolling(14).mean().iloc[-1]+1e-9)))
 
-# ════════════════════════════════════════════════════════════
-#  TOP NAVIGATION  ── always visible
-# ════════════════════════════════════════════════════════════
+
 PAGES = ["📊 Dashboard","🔮 Predictions","🔍 SHAP Explainer","💹 Paper Trading","🧠 AI Chat","📈 PyTorch TFT","📰 News & Sentiment",
          "💼 Portfolio","🔔 Alerts","📈 Screener","❓ How To Use"]
 
