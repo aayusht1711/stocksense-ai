@@ -145,7 +145,6 @@ def fetch_intraday_alpha_vantage(
     return df
 
 
-# ── Market Meta ──────────────────────────────────────────────────────────────
 
 def get_ticker_info(ticker: str) -> dict:
     """Return company name, sector, market cap etc."""
@@ -172,8 +171,6 @@ def get_current_price(ticker: str) -> float:
     df = fetch_stock_data(ticker, period="5d", use_cache=False)
     return float(df["Close"].iloc[-1])
 
-
-# ── CLI quick test ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     df = fetch_stock_data("AAPL", period="2y")
