@@ -19,7 +19,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -91,6 +91,12 @@ class BacktestRequest(BaseModel):
     initial_capital: float = Field(100_000, ge=1_000)
     stop_loss_pct: float = Field(0.05)
     commission_pct:float = Field(0.001)
+
+class OrderRequest(BaseModel):
+    ticker: str = Field(..., description="Stock ticker symbol")
+    qty: float = Field(..., gt=0, description="Quantity to trade")
+    side: str = Field(..., description="'buy' or 'sell'")
+    order_type: str = Field("market", description="Order type")
 
 class TickerInfoResponse(BaseModel):
     ticker: str
@@ -337,6 +343,60 @@ async def batch_predict(
         except Exception as e:
             results.append({"ticker": ticker, "error": str(e)})
     return {"predictions": results, "count": len(results)}
+
+
+# ── Trading & WebSockets ──────────────────────────────────────────────────────
+
+@app.get("/trading/account", tags=["Trading"])
+async def get_trading_account():
+    """Fetch Alpaca account summary."""
+    from api.trading import trading_service
+    return trading_service.get_account_summary()
+
+@app.get("/trading/positions", tags=["Trading"])
+async def get_trading_positions():
+    """Fetch active portfolio positions."""
+    from api.trading import trading_service
+    return trading_service.get_positions()
+
+@app.post("/trading/order", tags=["Trading"])
+async def submit_trading_order(req: OrderRequest):
+    """Submit a trade order to Alpaca."""
+    from api.trading import trading_service
+    return trading_service.submit_order(req.ticker, req.qty, req.side, req.order_type)
+
+@app.websocket("/ws/price/{ticker}")
+async def websocket_price_stream(websocket: WebSocket, ticker: str):
+    """
+    WebSocket endpoint for real-time price streaming.
+    Simulates high-frequency ticks around the current price for demo purposes.
+    """
+    await websocket.accept()
+    try:
+        from data.ingestion import get_current_price
+        base_price = get_current_price(ticker.upper())
+        current_price = base_price
+        
+        while True:
+            # Simulate a small random walk
+            change = np.random.normal(0, base_price * 0.0005)
+            current_price += change
+            
+            await websocket.send_json({
+                "ticker": ticker.upper(),
+                "price": round(current_price, 2),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            await asyncio.sleep(1.0) # Send tick every second
+            
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket client disconnected for {ticker}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────

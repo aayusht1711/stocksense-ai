@@ -1012,7 +1012,7 @@ elif "SHAP" in page:
             ))
             fig_wf.update_layout(
                 title=f"{ticker} — Prediction Decomposition (latest data point)",
-                paper_bgcolor=BG, plot_bgcolor=SURF,
+                paper_bgcolor=BG, plot_bgcolor=SF,
                 font=dict(color=TX, size=10, family="DM Mono, monospace"),
                 height=460, margin=dict(l=8,r=8,t=40,b=100),
                 xaxis=dict(gridcolor="rgba(255,255,255,0.04)", tickangle=-30),
@@ -1054,7 +1054,7 @@ elif "SHAP" in page:
             ))
             fig_imp.update_layout(
                 title="Top 15 Most Influential Features",
-                paper_bgcolor=BG, plot_bgcolor=SURF,
+                paper_bgcolor=BG, plot_bgcolor=SF,
                 font=dict(color=TX, size=11, family="DM Mono, monospace"),
                 height=480, margin=dict(l=8,r=60,t=40,b=8),
                 xaxis=dict(gridcolor="rgba(255,255,255,0.04)", title="Mean |SHAP value| ($)"),
@@ -1094,7 +1094,7 @@ elif "SHAP" in page:
                 fig_rsi_wi.add_vline(x=70, line_dash="dash", line_color=RD, annotation_text="Overbought 70")
                 fig_rsi_wi.add_hrect(y0=min(rsi_preds), y1=cur, fillcolor="rgba(74,222,128,0.05)", line_width=0)
                 fig_rsi_wi.update_layout(
-                    paper_bgcolor=BG, plot_bgcolor=SURF,
+                    paper_bgcolor=BG, plot_bgcolor=SF,
                     font=dict(color=TX, size=10),
                     height=280, margin=dict(l=8,r=8,t=10,b=40),
                     xaxis=dict(title="RSI Value", gridcolor="rgba(255,255,255,0.04)"),
@@ -1120,7 +1120,7 @@ elif "SHAP" in page:
                 ))
                 fig_macd_wi.add_vline(x=0, line_dash="dash", line_color=MT, annotation_text="Zero line")
                 fig_macd_wi.update_layout(
-                    paper_bgcolor=BG, plot_bgcolor=SURF,
+                    paper_bgcolor=BG, plot_bgcolor=SF,
                     font=dict(color=TX, size=10),
                     height=280, margin=dict(l=8,r=8,t=10,b=40),
                     xaxis=dict(title="MACD Value", gridcolor="rgba(255,255,255,0.04)"),
@@ -1180,7 +1180,7 @@ elif "SHAP" in page:
             ))
             fig_wi.update_layout(
                 title=f"How {chosen_feat} affects predicted price",
-                paper_bgcolor=BG, plot_bgcolor=SURF,
+                paper_bgcolor=BG, plot_bgcolor=SF,
                 font=dict(color=TX, size=11),
                 height=300, margin=dict(l=8,r=8,t=40,b=8),
                 xaxis=dict(title=chosen_feat, gridcolor="rgba(255,255,255,0.04)"),
@@ -1220,12 +1220,12 @@ elif "SHAP" in page:
             fig_ot.add_hline(y=0, line_color=MT, line_dash="dot", line_width=0.5)
             fig_ot.update_layout(
                 title="SHAP values over test period (top 6 features)",
-                paper_bgcolor=BG, plot_bgcolor=SURF,
+                paper_bgcolor=BG, plot_bgcolor=SF,
                 font=dict(color=TX, size=11),
                 height=300, margin=dict(l=8,r=8,t=40,b=8),
                 xaxis=dict(title="Sample index", gridcolor="rgba(255,255,255,0.04)"),
                 yaxis=dict(title="SHAP value ($)", gridcolor="rgba(255,255,255,0.04)"),
-                legend=dict(bgcolor=SURF, bordercolor="rgba(196,160,80,0.2)", borderwidth=1,
+                legend=dict(bgcolor=SF, bordercolor="rgba(196,160,80,0.2)", borderwidth=1,
                             orientation="h", y=-0.25),
             )
             st.plotly_chart(fig_ot, use_container_width=True)
