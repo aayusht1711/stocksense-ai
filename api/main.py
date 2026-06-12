@@ -98,6 +98,9 @@ class OrderRequest(BaseModel):
     side: str = Field(..., description="'buy' or 'sell'")
     order_type: str = Field("market", description="Order type")
 
+class CommitteeRequest(BaseModel):
+    ticker: str = Field(..., description="Stock or Crypto ticker symbol")
+
 class TickerInfoResponse(BaseModel):
     ticker: str
     name:   str
@@ -345,6 +348,22 @@ async def batch_predict(
     return {"predictions": results, "count": len(results)}
 
 
+# ── LLM Swarm (Multi-Agent Committee) ────────────────────────────────────────
+
+@app.post("/committee/debate", tags=["Agents"])
+async def run_committee_debate(req: CommitteeRequest):
+    """
+    Run an LLM Swarm debate on a ticker using 4 specialized agents.
+    """
+    try:
+        from api.agents import agent_swarm
+        transcript = await agent_swarm.run_committee_debate(req.ticker)
+        return {"ticker": req.ticker, "transcript": transcript}
+    except Exception as e:
+        logger.error(f"Committee debate error for {req.ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Trading & WebSockets ──────────────────────────────────────────────────────
 
 @app.get("/trading/account", tags=["Trading"])
@@ -370,20 +389,42 @@ async def websocket_price_stream(websocket: WebSocket, ticker: str):
     """
     WebSocket endpoint for real-time price streaming.
     Simulates high-frequency ticks around the current price for demo purposes.
+    Supports Crypto symbols like BTC/USD.
     """
     await websocket.accept()
+    ticker = ticker.upper()
     try:
         from data.ingestion import get_current_price
-        base_price = get_current_price(ticker.upper())
+        
+        # Crypto mock defaults in case yFinance fails for raw symbol
+        crypto_defaults = {
+            "BTC/USD": 65000.0,
+            "ETH/USD": 3500.0,
+            "SOL/USD": 140.0,
+            "DOGE/USD": 0.15
+        }
+        
+        try:
+            # yfinance expects BTC-USD instead of BTC/USD
+            yf_ticker = ticker.replace("/", "-")
+            base_price = get_current_price(yf_ticker)
+        except Exception:
+            if ticker in crypto_defaults:
+                base_price = crypto_defaults[ticker]
+            else:
+                base_price = 100.0 # fallback
+
         current_price = base_price
         
         while True:
             # Simulate a small random walk
-            change = np.random.normal(0, base_price * 0.0005)
+            # Crypto is generally more volatile, increase variance slightly if crypto
+            volatility_multiplier = 0.001 if "/" in ticker else 0.0005
+            change = np.random.normal(0, base_price * volatility_multiplier)
             current_price += change
             
             await websocket.send_json({
-                "ticker": ticker.upper(),
+                "ticker": ticker,
                 "price": round(current_price, 2),
                 "timestamp": datetime.utcnow().isoformat()
             })
@@ -393,6 +434,56 @@ async def websocket_price_stream(websocket: WebSocket, ticker: str):
         logger.info(f"WebSocket client disconnected for {ticker}")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
+
+@app.websocket("/ws/backtest/{ticker}")
+async def websocket_backtest_stream(websocket: WebSocket, ticker: str):
+    """
+    WebSocket endpoint for Time Machine Backtester.
+    Streams historical price data day-by-day to simulate a live replay.
+    """
+    await websocket.accept()
+    ticker = ticker.upper()
+    try:
+        from data.ingestion import fetch_stock_data
+        
+        # Fetch 1 year of historical data
+        df = fetch_stock_data(ticker, period="1y")
+        
+        for date, row in df.iterrows():
+            price = float(row["Close"])
+            # Simulate a basic ML signal (moving averages logic for demo replay)
+            ma_short = df["Close"].loc[:date].tail(20).mean()
+            ma_long = df["Close"].loc[:date].tail(50).mean()
+            
+            signal = "HOLD"
+            if price > ma_short and ma_short > ma_long:
+                signal = "BUY"
+            elif price < ma_short and ma_short < ma_long:
+                signal = "SELL"
+                
+            await websocket.send_json({
+                "ticker": ticker,
+                "price": round(price, 2),
+                "date": date.strftime("%Y-%m-%d"),
+                "signal": signal,
+                "drawdown": round((price / df["Close"].max() - 1) * 100, 2)
+            })
+            
+            # Stream fast but visually pleasing (10 ticks per second)
+            await asyncio.sleep(0.1)
+            
+        # Send completion flag
+        await websocket.send_json({"status": "COMPLETE"})
+        await websocket.close()
+            
+    except WebSocketDisconnect:
+        logger.info(f"Backtest client disconnected for {ticker}")
+    except Exception as e:
+        logger.error(f"Backtest WebSocket error: {e}")
         try:
             await websocket.close()
         except:
