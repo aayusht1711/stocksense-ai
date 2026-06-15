@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion, Variants, AnimatePresence } from "framer-motion";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Activity, TrendingUp, DollarSign, Crosshair, ArrowRight, ArrowUpRight, ArrowDownRight, Bitcoin, Briefcase, Users, MessageSquare, History } from "lucide-react";
+import { Activity, TrendingUp, DollarSign, Crosshair, ArrowRight, ArrowUpRight, ArrowDownRight, Bitcoin, Briefcase, Users, MessageSquare, History, BellRing } from "lucide-react";
 import Link from "next/link";
 import VoiceCopilot from "../components/VoiceCopilot";
 
@@ -111,6 +111,20 @@ export default function Dashboard() {
       alert(`Voice Command Recognized: Ready to ${intent.action.toUpperCase()} ${intent.qty || 'market qty'} of ${intent.ticker || ticker}. Waiting for your confirmation.`);
     } else if (intent.action === "view_ticker") {
       if (intent.ticker) setTicker(intent.ticker.toUpperCase());
+    }
+  };
+
+  const testNotification = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/trading/test-alert", { method: "POST" });
+      if (res.ok) {
+        alert("Test notification triggered! Check your Discord.");
+      } else {
+        alert("Failed to send notification. Ensure DISCORD_WEBHOOK_URL is set in backend .env");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error triggering test notification");
     }
   };
 
@@ -251,6 +265,11 @@ export default function Dashboard() {
                   </motion.button>
                   <motion.button whileHover={{ scale: 1.02, backgroundColor: "rgba(248,113,113,0.2)" }} whileTap={{ scale: 0.98 }} className="flex-1 bg-[#F87171]/10 border border-[#F87171]/40 text-[#F87171] font-semibold py-4 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(248,113,113,0.1)]">
                     <ArrowDownRight className="w-5 h-5" /> Go Short (Market)
+                  </motion.button>
+                </div>
+                <div className="mt-4">
+                  <motion.button onClick={testNotification} whileHover={{ scale: 1.02, backgroundColor: "rgba(100,100,255,0.2)" }} whileTap={{ scale: 0.98 }} className="w-full bg-[#5865F2]/10 border border-[#5865F2]/40 text-[#5865F2] font-semibold py-3 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(88,101,242,0.1)]">
+                    <BellRing className="w-4 h-4" /> Test Discord Webhook Alert
                   </motion.button>
                 </div>
               </motion.div>

@@ -400,6 +400,17 @@ async def submit_trading_order(req: OrderRequest):
     from api.trading import trading_service
     return trading_service.submit_order(req.ticker, req.qty, req.side, req.order_type)
 
+@app.post("/trading/test-alert", tags=["Trading"])
+async def send_test_alert():
+    """Send a test notification to Discord."""
+    try:
+        from api.notifications import notification_service
+        success = notification_service.send_test_alert()
+        return {"success": success}
+    except Exception as e:
+        logger.error(f"Error triggering test alert: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.websocket("/ws/price/{ticker}")
 async def websocket_price_stream(websocket: WebSocket, ticker: str):
     """

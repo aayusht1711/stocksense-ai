@@ -91,6 +91,14 @@ class AlpacaTradingService:
                 time_in_force='gtc'
             )
             logger.info(f"Order submitted: {side.upper()} {qty} {ticker.upper()}")
+            
+            # Fire notification
+            try:
+                from api.notifications import notification_service
+                notification_service.send_trade_alert(ticker=ticker.upper(), side=side.lower(), qty=qty)
+            except Exception as e:
+                logger.error(f"Failed to trigger notification service: {e}")
+                
             return {
                 "id": order.id,
                 "client_order_id": order.client_order_id,
