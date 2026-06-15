@@ -69,4 +69,59 @@ class LLMSwarm:
 
         return transcript
 
+    async def parse_voice_intent(self, transcript: str) -> Dict[str, Any]:
+        """
+        Parses voice transcript into structured JSON intent.
+        Example: "buy 5 shares of apple" -> {"action": "buy", "ticker": "AAPL", "qty": 5}
+        """
+        logger.info(f"Parsing voice intent for: '{transcript}'")
+        
+        prompt = f"""
+        You are an AI financial copilot. Extract the trading intent from the user's voice command.
+        Respond ONLY with a valid JSON object. Do not include markdown formatting or extra text.
+        
+        The JSON must match this schema:
+        {{
+            "action": "buy" | "sell" | "switch_market" | "view_ticker" | "unknown",
+            "ticker": "TICKER SYMBOL (e.g. AAPL, BTC/USD)",
+            "qty": number (or null if not applicable),
+            "market": "TRADFI" | "CRYPTO" (only if action is switch_market, else null)
+        }}
+        
+        User command: "{transcript}"
+        """
+        
+        if self.client:
+            try:
+                response = await self.client.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=100,
+                    system="You are a JSON-only API.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                text = response.content[0].text
+                import json
+                return json.loads(text)
+            except Exception as e:
+                logger.error(f"Anthropic API error for voice intent: {e}")
+                pass
+                
+        # Fallback simulation if no API key or API fails
+        text = transcript.lower()
+        if "buy" in text:
+            qty = 1
+            words = text.split()
+            for w in words:
+                if w.isdigit():
+                    qty = int(w)
+                    break
+            ticker = "AAPL" if "apple" in text else ("BTC/USD" if "bitcoin" in text else "TSLA")
+            return {"action": "buy", "ticker": ticker, "qty": qty, "market": None}
+        elif "crypto" in text or "bitcoin" in text:
+            return {"action": "switch_market", "ticker": "BTC/USD", "qty": None, "market": "CRYPTO"}
+        elif "apple" in text or "stock" in text:
+            return {"action": "switch_market", "ticker": "AAPL", "qty": None, "market": "TRADFI"}
+        
+        return {"action": "unknown", "ticker": None, "qty": None, "market": None}
+
 agent_swarm = LLMSwarm()

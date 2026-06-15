@@ -101,6 +101,9 @@ class OrderRequest(BaseModel):
 class CommitteeRequest(BaseModel):
     ticker: str = Field(..., description="Stock or Crypto ticker symbol")
 
+class VoiceRequest(BaseModel):
+    transcript: str = Field(..., description="The recognized voice transcript text")
+
 class TickerInfoResponse(BaseModel):
     ticker: str
     name:   str
@@ -361,6 +364,19 @@ async def run_committee_debate(req: CommitteeRequest):
         return {"ticker": req.ticker, "transcript": transcript}
     except Exception as e:
         logger.error(f"Committee debate error for {req.ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/voice/intent", tags=["Agents"])
+async def parse_voice_command(req: VoiceRequest):
+    """
+    Parses a voice transcript into a structured trading intent.
+    """
+    try:
+        from api.agents import agent_swarm
+        intent = await agent_swarm.parse_voice_intent(req.transcript)
+        return intent
+    except Exception as e:
+        logger.error(f"Voice intent error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

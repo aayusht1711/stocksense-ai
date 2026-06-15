@@ -6,6 +6,7 @@ import { motion, Variants, AnimatePresence } from "framer-motion";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Activity, TrendingUp, DollarSign, Crosshair, ArrowRight, ArrowUpRight, ArrowDownRight, Bitcoin, Briefcase, Users, MessageSquare, History } from "lucide-react";
 import Link from "next/link";
+import VoiceCopilot from "../components/VoiceCopilot";
 
 // Dynamically import the 3D scene to prevent SSR issues with WebGL
 const Scene = dynamic(() => import("../components/Scene"), { ssr: false });
@@ -96,8 +97,28 @@ export default function Dashboard() {
     setLoadingCommittee(false);
   };
 
+  const handleVoiceIntent = (intent: any) => {
+    if (intent.action === "switch_market") {
+      if (intent.market === "CRYPTO") {
+        setMarketMode("CRYPTO");
+        setTicker(intent.ticker || "BTC/USD");
+      } else {
+        setMarketMode("TRADFI");
+        setTicker(intent.ticker || "AAPL");
+      }
+    } else if (intent.action === "buy" || intent.action === "sell") {
+      if (intent.ticker) setTicker(intent.ticker.toUpperCase());
+      alert(`Voice Command Recognized: Ready to ${intent.action.toUpperCase()} ${intent.qty || 'market qty'} of ${intent.ticker || ticker}. Waiting for your confirmation.`);
+    } else if (intent.action === "view_ticker") {
+      if (intent.ticker) setTicker(intent.ticker.toUpperCase());
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#080B0F] text-[#E8E0D0] font-sans selection:bg-[#C4A050] selection:text-black relative overflow-hidden">
+      {/* Voice Copilot FAB */}
+      <VoiceCopilot onIntentParsed={handleVoiceIntent} />
+
       {/* 3D Background */}
       <Scene />
 
