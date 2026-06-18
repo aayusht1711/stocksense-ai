@@ -101,12 +101,12 @@ export default function VoiceCopilot({ onIntentParsed }: VoiceCopilotProps) {
             initial={{ opacity: 0, y: 10, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="bg-[#0E1118]/90 backdrop-blur-md border border-[#C4A050]/40 rounded-2xl p-4 shadow-2xl max-w-xs pointer-events-auto"
+            className="bg-white/90 dark:bg-[#0D1117]/90 backdrop-blur-md border border-gray-200 dark:border-[#00FF41]/40 rounded-2xl p-4 shadow-2xl max-w-xs pointer-events-auto"
           >
-            <div className="text-xs text-[#C4A050] uppercase tracking-widest font-semibold mb-1 flex items-center gap-2">
+            <div className="text-xs text-gray-800 dark:text-[#00FF41] uppercase tracking-widest font-black mb-1 flex items-center gap-2">
               {isProcessing ? <><Loader2 className="w-3 h-3 animate-spin" /> Processing AI...</> : "Voice Co-Pilot"}
             </div>
-            <div className="text-sm text-gray-200">
+            <div className="text-sm font-mono text-gray-600 dark:text-gray-200 font-bold">
               {transcript || "Listening..."}
             </div>
           </motion.div>
@@ -118,10 +118,10 @@ export default function VoiceCopilot({ onIntentParsed }: VoiceCopilotProps) {
         onClick={toggleListen}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className={`pointer-events-auto w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(196,160,80,0.3)] transition-all relative ${
+        className={`pointer-events-auto w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(0,255,65,0.3)] transition-all relative ${
           isListening 
             ? "bg-red-500/20 border-2 border-red-500 text-red-500 shadow-[0_0_30px_rgba(239,68,68,0.5)]" 
-            : "bg-[#C4A050]/10 border border-[#C4A050]/50 text-[#C4A050] hover:bg-[#C4A050]/20"
+            : "bg-gray-100 dark:bg-[#00FF41]/10 border border-gray-300 dark:border-[#00FF41]/50 text-black dark:text-[#00FF41] hover:bg-white dark:hover:bg-[#00FF41]/20"
         }`}
       >
         {isListening && (
