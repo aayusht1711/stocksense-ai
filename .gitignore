@@ -1,4 +1,3 @@
-# ── StockSense AI — .gitignore ───────────────────────────────
 
 # Secrets — NEVER commit these
 .env
