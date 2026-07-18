@@ -4,7 +4,6 @@ from typing import List, Dict, Any
 from loguru import logger
 import anthropic
 from dotenv import load_dotenv
-
 load_dotenv()
 
 class LLMSwarm:
