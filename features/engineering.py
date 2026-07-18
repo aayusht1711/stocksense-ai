@@ -11,8 +11,6 @@ from loguru import logger
 from sklearn.preprocessing import RobustScaler
 import joblib
 from pathlib import Path
-
-# ta library provides all indicators we need (installs cleanly on Windows/Python 3.11)
 try:
     import ta
     TA_AVAILABLE = True
