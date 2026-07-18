@@ -51,7 +51,6 @@ def train_single_ticker(
     logger.info(f"  Training pipeline for {ticker}")
     logger.info(f"{'='*60}\n")
 
-    # ── 1. Data Ingestion ──────────────────────────────────────
     logger.info("Step 1/6 — Data Ingestion")
     from data.ingestion import fetch_stock_data, get_ticker_info
     df_raw = fetch_stock_data(ticker, period=period)
